@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard · Signal Provision</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head><body>
+  <nav class="navbar">
+    <div class="brand">Signal Provision</div>
+    <form method="post" action="{{ url_for('logout') }}"><button class="link" type="submit">Logout</button></form>
+  </nav>
+
+  <main class="container">
+    <section class="card">
+      <h3>Start Program</h3>
+      <form method="post">
+        <div class="grid">
+          <div>
+            <label>Universe</label>
+            <select name="universe_n">
+              {% for n in [10,20,30,40,50] %}
+              <option value="{{n}}" {% if universe_n==n %}selected{% endif %}>Top {{n}}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Investable (USD)</label>
+            <input type="number" min="0" step="100" name="investable" value="{{ investable }}">
+          </div>
+          <div>
+            <label>Delta</label>
+            <input type="range" min="-1" max="1" step="0.1" name="delta" value="{{ delta }}">
+            <div class="range-labels"><span>Full Short</span><span>Neutral</span><span>Full Long</span></div>
+          </div>
+          <div>
+            <label>Leverage</label>
+            <input type="range" min="0" max="5" step="0.1" name="leverage" value="{{ leverage }}">
+          </div>
+        </div>
+        <button type="submit">Validate & Generate Orders</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h3>Today’s Orders</h3>
+      {% if orders and orders|length %}
+      <table class="table">
+        <thead><tr><th>Symbol</th><th>Side</th><th>Signal</th><th>Ref Price</th><th>Weight %</th><th>Notional USD</th></tr></thead>
+        <tbody>
+          {% for o in orders %}
+          <tr>
+            <td>{{ o.symbol }}</td>
+            <td>{{ o.side }}</td>
+            <td>{{ '%.3f'|format(o.signal) }}</td>
+            <td>{{ '%.4f'|format(o.ref_price) }}</td>
+            <td>{{ '%.2f'|format(o.weight_pct) }}</td>
+            <td>{{ '%.2f'|format(o.notional_usd) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <a class="btn" href="{{ url_for('download_orders_csv') }}">Download CSV</a>
+      {% else %}
+      <p>No orders yet. Set your parameters and click “Validate & Generate Orders”.</p>
+      {% endif %}
+    </section>
+  </main>
+</body></html>

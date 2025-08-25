@@ -1,3 +1,4 @@
 .env
 *.pem
 data/signals/
+!data/signals/sample.csv

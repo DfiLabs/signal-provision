@@ -1,131 +1,99 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
-from werkzeug.security import generate_password_hash, check_password_hash
+import os
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash
+from dotenv import load_dotenv
+import io, csv, datetime as dt
 
-"""
-app.py
-~~~~~~~~
+from signals.leo_ingest import build_orders
 
-SignalPulse skeleton web application.
+load_dotenv()
+SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev")
+SIGNAL_DIR = os.getenv("SIGNAL_DIR", "./data/signals")
 
-This Flask app provides a simple demonstration of how a factor‑signal platform might
-be organised.  It implements a basic login system using a single hardcoded user,
-displays a dashboard where the user can select an investable amount and
-portfolio delta via sliders, and presents a table of dummy orders.  In a
-production system, user authentication, data storage and signal generation
-would be handled by proper databases and secure APIs.  Here we focus on the
-layout and flow of the UI to illustrate the concept.
+DEMO_USER = os.getenv("DEMO_USER", "demo")
+DEMO_PASS = os.getenv("DEMO_PASS", "demopassword")
 
-To run this app locally, install Flask (``pip install flask``) and run
-``python app.py`` then visit ``http://localhost:5000`` in your browser.
-
-This code is released under the MIT licence.
-"""
-
-# Create the Flask application
 app = Flask(__name__)
-app.secret_key = "your_secret_key_here"  # Replace with a secure random secret in production
+app.secret_key = SECRET_KEY
 
-###############################################################################
-# Dummy user management
-###############################################################################
-# In a real application you would store users in a database and hash their
-# passwords.  For this skeleton we hardcode a single user.
-USERS = {
-    "demo": generate_password_hash("demopassword")
-}
+def require_login():
+    return ("user" in session) and session["user"] == DEMO_USER
 
+@app.route("/", methods=["GET"])
+def index():
+    return redirect(url_for("dashboard") if require_login() else url_for("login"))
 
-def is_logged_in() -> bool:
-    """Return True if the current session is authenticated."""
-    return bool(session.get("user"))
-
-
-###############################################################################
-# Routes
-###############################################################################
-@app.route("/", methods=["GET", "POST"])
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET","POST"])
 def login():
-    """Handle the login form and redirect to dashboard when successful."""
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        stored_hash = USERS.get(username)
-        if stored_hash and check_password_hash(stored_hash, password):
-            session["user"] = username
+        email = request.form.get("email","").strip()
+        pw    = request.form.get("password","")
+        if email == DEMO_USER and pw == DEMO_PASS:
+            session["user"] = DEMO_USER
             return redirect(url_for("dashboard"))
-        flash("Invalid username or password", "error")
-    if is_logged_in():
-        return redirect(url_for("dashboard"))
+        flash("Invalid credentials", "error")
     return render_template("login.html")
 
-
-@app.route("/logout")
+@app.route("/logout", methods=["POST","GET"])
 def logout():
-    """Log the user out by clearing the session."""
-    session.pop("user", None)
+    session.clear()
     return redirect(url_for("login"))
 
-
-@app.route("/dashboard", methods=["GET", "POST"])
+@app.route("/dashboard", methods=["GET","POST"])
 def dashboard():
-    """Display the dashboard with sliders and dummy orders."""
-    if not is_logged_in():
+    if not require_login():
         return redirect(url_for("login"))
 
-    # Default values for the sliders
-    investable = request.form.get("investable_amount", 100000)  # default 100k
-    delta = request.form.get("delta", 0)
-    try:
-        investable = float(investable)
-        delta = float(delta)
-    except ValueError:
-        investable = 100000
-        delta = 0
+    # Defaults for first visit
+    investable = float(session.get("investable", 1000))
+    delta      = float(session.get("delta", 0.0))
+    leverage   = float(session.get("leverage", 1.0))
+    universe_n = int(session.get("universe_n", 10))
+    orders     = []
 
-    # Generate dummy orders based on the delta.  In reality you'd fetch the
-    # latest orders from your research instance or database.
-    orders = generate_dummy_orders(investable, delta)
+    if request.method == "POST":
+        investable = float(request.form.get("investable", investable))
+        delta      = float(request.form.get("delta", delta))
+        leverage   = float(request.form.get("leverage", leverage))
+        universe_n = int(request.form.get("universe_n", universe_n))
+
+        # clamp
+        delta = max(-1.0, min(1.0, delta))
+        leverage = max(0.0, min(5.0, leverage))
+        if universe_n not in (10,20,30,40,50):
+            universe_n = 10
+
+        # persist in session
+        session.update(investable=investable, delta=delta, leverage=leverage, universe_n=universe_n)
+
+        # build orders from latest Leo CSV
+        try:
+            orders = build_orders(SIGNAL_DIR, investable, delta, leverage, universe_n)
+        except Exception as e:
+            flash(f"Error loading signals: {e}", "error")
+            orders = []
 
     return render_template(
         "dashboard.html",
-        investable=investable,
-        delta=delta,
-        orders=orders,
+        investable=investable, delta=delta, leverage=leverage, universe_n=universe_n,
+        orders=orders, today=dt.date.today().isoformat()
     )
 
+@app.route("/download_orders.csv", methods=["GET"])
+def download_orders_csv():
+    if not require_login():
+        return redirect(url_for("login"))
+    investable = float(session.get("investable", 1000))
+    delta      = float(session.get("delta", 0.0))
+    leverage   = float(session.get("leverage", 1.0))
+    universe_n = int(session.get("universe_n", 10))
 
-###############################################################################
-# Helper functions
-###############################################################################
-def generate_dummy_orders(investable: float, delta: float) -> list:
-    """Return a list of dummy order dictionaries.
-
-    This function synthesises a set of orders based on the investable amount and
-    the chosen delta (portfolio tilt).  A positive delta biases towards long
-    positions, a negative delta biases towards short positions, and zero is
-    market neutral.
-    """
-    # Example asset universe
-    assets = ["BTC", "ETH", "SOL", "BNB", "XRP"]
-    orders = []
-    # Spread capital equally across assets and modulate by delta
-    base_position = investable / len(assets)
-    for asset in assets:
-        # A simple factor determines the quantity sign based on delta
-        qty_factor = delta if delta != 0 else 1
-        # The order size (not realistic; demonstration only)
-        qty = round(qty_factor * base_position / 10000, 4)
-        # Determine buy/sell
-        side = "Buy" if qty > 0 else "Sell"
-        orders.append({
-            "asset": asset,
-            "side": side,
-            "quantity": abs(qty),
-        })
-    return orders
-
+    orders = build_orders(SIGNAL_DIR, investable, delta, leverage, universe_n)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=["symbol","side","signal","ref_price","weight_pct","notional_usd"])
+    w.writeheader(); w.writerows(orders)
+    mem = io.BytesIO(buf.getvalue().encode("utf-8"))
+    mem.seek(0)
+    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name=f"orders_{dt.date.today().isoformat()}.csv")
 
 if __name__ == "__main__":
-    # Run the app in debug mode for development
     app.run(debug=True)

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>{{ title if title else 'SignalPulse' }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  </head>
+  <body>
+    <nav class="navbar">
+      <div class="container">
+        <div class="brand">
+          <img src="{{ url_for('static', filename='images/logo.png') }}" alt="SignalPulse logo" class="logo">
+          <span class="brand-name">SignalPulse</span>
+        </div>
+        {% if session.get('user') %}
+        <div class="user-info">
+          <span class="welcome">Welcome, {{ session.get('user') }}</span>
+          <a href="{{ url_for('logout') }}" class="logout">Logout</a>
+        </div>
+        {% endif %}
+      </div>
+    </nav>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="footer">
+      <div class="container">
+        <p class="legal">
+          This platform is provided by a DFI entity.  It is intended for educational
+          and informational purposes only and does not constitute investment advice.
+          Always consult a qualified professional before making investment decisions.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

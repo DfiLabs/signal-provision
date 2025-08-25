@@ -2,3 +2,6 @@
 *.pem
 data/signals/
 !data/signals/sample.csv
+# allow one committed sample for demo
+data/signals/
+!data/signals/sample.csv
